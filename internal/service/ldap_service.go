@@ -113,6 +113,22 @@ func (ldap *LdapService) connect() (*ldapgo.Conn, error) {
 	ldap.mutex.Lock()
 	defer ldap.mutex.Unlock()
 
+	conn, err := ldap.dial()
+	if err != nil {
+		return nil, err
+	}
+
+	ldap.conn = conn
+
+	err = ldap.BindService(false)
+	if err != nil {
+		return nil, err
+	}
+	return ldap.conn, nil
+}
+
+// dial opens a new connection to the LDAP server, without binding it.
+func (ldap *LdapService) dial() (*ldapgo.Conn, error) {
 	var conn *ldapgo.Conn
 	var err error
 
@@ -136,14 +152,7 @@ func (ldap *LdapService) connect() (*ldapgo.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	ldap.conn = conn
-
-	err = ldap.BindService(false)
-	if err != nil {
-		return nil, err
-	}
-	return ldap.conn, nil
+	return conn, nil
 }
 
 func (ldap *LdapService) GetUserInfo(username string) (dn string, email string, cn string, err error) {
@@ -255,14 +264,19 @@ func (ldap *LdapService) BindService(rebind bool) error {
 	return ldap.conn.Bind(ldap.config.LDAP.BindDN, ldap.bindPw)
 }
 
-func (ldap *LdapService) Bind(userDN string, password string) error {
-	ldap.mutex.Lock()
-	defer ldap.mutex.Unlock()
-	err := ldap.conn.Bind(userDN, password)
+// CheckPassword verifies a user's password by binding as that user on a connection of its
+// own, closed afterwards. The shared connection stays bound as the service account
+// throughout: binding it as the user, even briefly, let another request's search run as
+// that user, who in many directories (LLDAP among them) can see only their own entry
+// (tinyauthapp/tinyauth#1216).
+func (ldap *LdapService) CheckPassword(userDN string, password string) error {
+	conn, err := ldap.dial()
 	if err != nil {
 		return err
 	}
-	return nil
+	defer conn.Close()
+
+	return conn.Bind(userDN, password)
 }
 
 func (ldap *LdapService) heartbeat() error {

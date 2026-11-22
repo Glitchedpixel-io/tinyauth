@@ -1,0 +1,108 @@
+name: GP image
+
+# Glitchedpixel-io's patched build of tinyauth (see .github/gp/README.md). Tests every PR into
+# a gp/* branch, and on a push to one builds the image named by .github/gp/VERSION into
+# ghcr.io/glitchedpixel-io/tinyauth. An existing tag is never overwritten: bump VERSION.
+on:
+  pull_request:
+    branches: ["gp/**"]
+  push:
+    branches: ["gp/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Placeholder frontend, as the Go packages embed it
+        run: |
+          mkdir -p internal/assets/dist
+          echo '<html></html>' > internal/assets/dist/index.html
+          echo testing > internal/assets/version
+
+      - name: Unit tests
+        run: go test -race ./...
+
+      - name: Start LLDAP
+        run: |
+          echo "LLDAP_ADMIN_PASSWORD=admin-$(openssl rand -hex 12)" >> "$GITHUB_ENV"
+          echo "LLDAP_USER_PASSWORD=user-$(openssl rand -hex 12)" >> "$GITHUB_ENV"
+          source "$GITHUB_ENV"
+          docker run -d --name lldap -p 3890:3890 \
+            -e LLDAP_JWT_SECRET="$(openssl rand -hex 16)" \
+            -e LLDAP_KEY_SEED="$(openssl rand -hex 16)" \
+            -e LLDAP_LDAP_USER_PASS="$LLDAP_ADMIN_PASSWORD" \
+            -e LLDAP_LDAP_BASE_DN=dc=example,dc=com \
+            lldap/lldap:v0.6.3-alpine
+          docker cp .github/gp/seed-lldap.sh lldap:/tmp/seed.sh
+          docker exec -e ADMIN_PASSWORD="$LLDAP_ADMIN_PASSWORD" -e USER_PASSWORD="$LLDAP_USER_PASSWORD" lldap sh /tmp/seed.sh
+
+      - name: LDAP integration test (tinyauthapp/tinyauth#1216)
+        env:
+          LDAP_TEST_ADDRESS: ldap://localhost:3890
+          LDAP_TEST_ADMIN_PASSWORD: ${{ env.LLDAP_ADMIN_PASSWORD }}
+          LDAP_TEST_USER_PASSWORD: ${{ env.LLDAP_USER_PASSWORD }}
+        run: go test -tags ldap_integration -race -count=1 -v -run TestLDAP ./internal/service/
+
+  image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the tag
+        id: meta
+        run: |
+          version=$(tr -d '[:space:]' < .github/gp/VERSION)
+          image=ghcr.io/glitchedpixel-io/tinyauth
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse to overwrite a published tag
+        run: |
+          if docker manifest inspect "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+            echo "::error::${{ steps.meta.outputs.version }} is already published; bump .github/gp/VERSION"
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/Glitchedpixel-io/tinyauth
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0
+          build-args: |
+            VERSION=v${{ steps.meta.outputs.version }}
+            COMMIT_HASH=${{ steps.meta.outputs.commit }}
+            BUILD_TIMESTAMP=${{ steps.meta.outputs.built }}
+            LDFLAGS=-s -w
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

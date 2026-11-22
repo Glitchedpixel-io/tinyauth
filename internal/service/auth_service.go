@@ -200,14 +200,9 @@ func (auth *AuthService) CheckUserPassword(search model.UserSearch, password str
 		return bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 	case model.UserLDAP:
 		if auth.ldap != nil {
-			err := auth.ldap.Bind(search.Username, password)
+			err := auth.ldap.CheckPassword(search.Username, password)
 			if err != nil {
 				return fmt.Errorf("failed to bind to ldap user: %w", err)
-			}
-
-			err = auth.ldap.BindService(true)
-			if err != nil {
-				return fmt.Errorf("failed to bind to ldap service account: %w", err)
 			}
 
 			return nil
