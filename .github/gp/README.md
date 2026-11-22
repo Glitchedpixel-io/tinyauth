@@ -15,16 +15,17 @@ is never built.
 | A password is checked on a connection of its own (`LdapService.CheckPassword`), and the shared LDAP connection is never re-bound | Every basic-auth login bound the shared connection as the user until the service account was re-bound. A search from another request in that gap ran as the user, who in LLDAP sees only their own entry. That search found nothing: basic-auth logins got 401s (`multiple or no entries found`) and signed-in browsers got a 302 to the login page. On Core on 2026-11-22, a dashboard tab was refused about 1 read in 25. |
 
 The regression test is `internal/service/ldap_service_integration_test.go`, run against a
-real LLDAP by `.github/workflows/gp-image.yml`. On stock v5.2.0 it fails: 400 of 800
-searches came back empty.
+real LLDAP by `.github/workflows/gp-image.yml`. On stock v5.2.0 it fails: in the run that
+proved it, half the searches (400 of 800) came back empty.
 
 ## Building and releasing
 
 - A PR into `gp/v5.2.0` runs the `test` job: upstream's unit tests and the LLDAP
   integration test.
-- A push to a `gp/v*` branch, which is what merging a PR is, also builds `ghcr.io/glitchedpixel-io/tinyauth:<VERSION>`, with
-  `<VERSION>` read from `.github/gp/VERSION`, for example `5.2.0-gp.1`. A published tag is
-  never overwritten, so each change bumps `VERSION` in the same PR.
+- A push to a `gp/v*` branch, which is what merging a PR is, also builds
+  `ghcr.io/glitchedpixel-io/tinyauth:<VERSION>`, with `<VERSION>` read from
+  `.github/gp/VERSION`, for example `5.2.0-gp.1`. A feature branch is never built. A
+  published tag is never overwritten, so each change bumps `VERSION` in the same PR.
 - Upstream's own workflows are deleted on `gp/*` branches and disabled on `main`. Its
   `release.yml` would otherwise publish to this org's GHCR whenever a `v*` tag was pushed,
   and its `ci.yml` would run on every PR and fail on its Codecov upload.
