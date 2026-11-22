@@ -1,14 +1,14 @@
 name: GP image
 
 # Glitchedpixel-io's patched build of tinyauth (see .github/gp/README.md). Tests every PR into
-# a gp/* branch, and on a push to one builds the image named by .github/gp/VERSION into
-# ghcr.io/glitchedpixel-io/tinyauth. An existing tag is never overwritten: bump VERSION.
+# a gp/v* release branch, and on a push to one (a merged PR) builds the image named by
+# .github/gp/VERSION into ghcr.io/glitchedpixel-io/tinyauth. A feature branch is never built.
+# An existing tag is never overwritten: bump VERSION.
 on:
   pull_request:
-    branches: ["gp/**"]
+    branches: ["gp/v*"]
   push:
-    branches: ["gp/**"]
-  workflow_dispatch:
+    branches: ["gp/v*"]
 
 permissions:
   contents: read

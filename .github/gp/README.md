@@ -22,7 +22,7 @@ searches came back empty.
 
 - A PR into `gp/v5.2.0` runs the `test` job: upstream's unit tests and the LLDAP
   integration test.
-- A push to a `gp/*` branch also builds `ghcr.io/glitchedpixel-io/tinyauth:<VERSION>`, with
+- A push to a `gp/v*` branch, which is what merging a PR is, also builds `ghcr.io/glitchedpixel-io/tinyauth:<VERSION>`, with
   `<VERSION>` read from `.github/gp/VERSION`, for example `5.2.0-gp.1`. A published tag is
   never overwritten, so each change bumps `VERSION` in the same PR.
 - Upstream's own workflows are deleted on `gp/*` branches and disabled on `main`. Its
